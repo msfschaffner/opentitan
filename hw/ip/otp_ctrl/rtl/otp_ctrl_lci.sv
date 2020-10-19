@@ -37,8 +37,7 @@ module otp_ctrl_lci
   // OTP interface
   output logic                              otp_req_o,
   output prim_otp_cmd_e                     otp_cmd_o,
-  output logic [OtpSizeWidth-1:0]           otp_size_o,
-  output logic [OtpIfWidth-1:0]             otp_wdata_o,
+  output logic [OtpWidth-1:0]               otp_wdata_o,
   output logic [OtpAddrWidth-1:0]           otp_addr_o,
   input                                     otp_gnt_i,
   input                                     otp_rvalid_i,
@@ -225,12 +224,9 @@ module otp_ctrl_lci
   // shift the addresses appropriately.
   assign otp_addr_o = (Info.offset >> OtpAddrShift) + cnt_q;
 
-  // Always transfer 16bit blocks.
-  assign otp_size_o = '0;
-
   logic [NumLcOtpWords-1:0][OtpWidth-1:0] delta_data;
   assign delta_data        = {lc_count_delta_i, lc_state_delta_i};
-  assign otp_wdata_o       = OtpIfWidth'(delta_data[cnt_q]);
+  assign otp_wdata_o       = OtpWidth'(delta_data[cnt_q]);
   assign delta_data_is_set = (delta_data[cnt_q] != lc_ctrl_pkg::Blk);
 
   logic unused_rdata;
@@ -272,7 +268,6 @@ module otp_ctrl_lci
   `ASSERT_KNOWN(LciIdleKnown_A,  lci_idle_o)
   `ASSERT_KNOWN(OtpReqKnown_A,   otp_req_o)
   `ASSERT_KNOWN(OtpCmdKnown_A,   otp_cmd_o)
-  `ASSERT_KNOWN(OtpSizeKnown_A,  otp_size_o)
   `ASSERT_KNOWN(OtpWdataKnown_A, otp_wdata_o)
   `ASSERT_KNOWN(OtpAddrKnown_A,  otp_addr_o)
 

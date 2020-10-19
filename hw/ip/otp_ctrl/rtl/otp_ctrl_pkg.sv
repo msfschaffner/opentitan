@@ -53,10 +53,8 @@ package otp_ctrl_pkg;
   parameter int OtpAddrWidth     = OtpByteAddrWidth - $clog2(OtpWidth/8);
   parameter int OtpDepth         = 2**OtpAddrWidth;
   parameter int OtpCmdWidth      = 2;
-  parameter int OtpSizeWidth     = 2; // Allows to transfer up to 4 native OTP words at once.
   parameter int OtpErrWidth      = 3;
   parameter int OtpPwrSeqWidth   = 2;
-  parameter int OtpIfWidth       = 2**OtpSizeWidth*OtpWidth;
   // Number of Byte address bits to cut off in order to get the native OTP word address.
   parameter int OtpAddrShift     = OtpByteAddrWidth - OtpAddrWidth;
 

@@ -39,8 +39,7 @@ module otp_ctrl_dai
   // OTP interface
   output logic                           otp_req_o,
   output prim_otp_cmd_e                  otp_cmd_o,
-  output logic [OtpSizeWidth-1:0]        otp_size_o,
-  output logic [OtpIfWidth-1:0]          otp_wdata_o,
+  output logic [OtpWidth-1:0]            otp_wdata_o,
   output logic [OtpAddrWidth-1:0]        otp_addr_o,
   input                                  otp_gnt_i,
   input                                  otp_rvalid_i,
@@ -65,7 +64,7 @@ module otp_ctrl_dai
 
   import prim_util_pkg::vbits;
 
-  localparam int CntWidth = OtpByteAddrWidth - $clog2(ScrmblBlockWidth/8);
+  localparam int BlockCntWidth = OtpByteAddrWidth - $clog2(ScrmblBlockWidth/8);
 
   // Integration checks for parameters.
   `ASSERT_INIT(CheckNativeOtpWidth0_A, (ScrmblBlockWidth % OtpWidth) == 0)
@@ -132,8 +131,10 @@ module otp_ctrl_dai
   } addr_sel_e;
 
   state_e state_d, state_q;
-  logic [CntWidth-1:0] cnt_d, cnt_q;
-  logic cnt_en, cnt_clr;
+  logic [BlockCntWidth-1:0] block_cnt_d, block_cnt_q;
+  logic [vbits(ScrmblBlockWidth/8)-1:0] hw_cnt_d, hw_cnt_q;
+  logic block_cnt_en, block_cnt_clr;
+  logic hw_cnt_en, hw_cnt_clr;
   otp_err_e error_d, error_q;
   logic data_en, data_clr;
   data_sel_e data_sel;
@@ -146,7 +147,7 @@ module otp_ctrl_dai
   assign error_o       = error_q;
   // Working register is connected to data outputs.
   assign dai_rdata_o   = data_q;
-  assign otp_wdata_o   = data_q;
+  assign otp_wdata_o   = data_q[hw_cnt_q];
   assign scrmbl_data_o = data_q;
 
   always_comb begin : p_fsm
@@ -173,9 +174,11 @@ module otp_ctrl_dai
     scrmbl_valid_o = 1'b0;
 
     // Counter
-    cnt_en  = 1'b0;
-    cnt_clr = 1'b0;
-    base_sel_d = base_sel_q;
+    block_cnt_en  = 1'b0;
+    block_cnt_clr = 1'b0;
+    hw_cnt_en     = 1'b0;
+    hw_cnt_clr    = 1'b0;
+    base_sel_d    = base_sel_q;
 
     // Temporary data register
     data_en = 1'b0;
@@ -235,6 +238,9 @@ module otp_ctrl_dai
         if (dai_req_i) begin
           // This clears previous (recoverable) errors.
           error_d = NoError;
+          // Clear the counters before executing the command.
+          block_cnt_clr = 1'b1;
+          hw_cnt_clr    = 1'b1;
           unique case (dai_cmd_i)
             DaiRead:  begin
               state_d = ReadSt;
@@ -288,17 +294,29 @@ module otp_ctrl_dai
       // terminal error state.
       ReadWaitSt: begin
         if (otp_rvalid_i) begin
+          hw_cnt_en = 1'b1;
           // Check OTP return code.
           if ((!(otp_err_i inside {NoError, MacroEccCorrError}))) begin
             state_d = ErrorSt;
             error_d = otp_err_i;
           end else begin
-            data_en = 1'b1;
+            data_en   = 1'b1;
             if (PartInfo[part_idx].scrambled) begin
-              state_d = DescrSt;
+              // Descramble if we've fetched 64bit.
+              if (hw_cnt_q == ScrmblBlockHalfWords-1) begin
+                state_d = DescrSt;
+              // Else fetch more halfwords.
+              end else begin
+                state_d = ReadSt;
+              end
             end else begin
-              state_d = IdleSt;
-              dai_cmd_done_o = 1'b1;
+              if (hw_cnt_q == 1) begin
+                state_d = IdleSt;
+                dai_cmd_done_o = 1'b1;
+              // Need to go back and request second half word.
+              end else begin
+                state_d = ReadSt;
+              end
             end
             // Signal soft ECC errors, but do not go into terminal error state.
             if (otp_err_i == MacroEccCorrError) begin
@@ -368,13 +386,32 @@ module otp_ctrl_dai
       // terminal error state.
       WriteWaitSt: begin
         if (otp_rvalid_i) begin
+          hw_cnt_en = 1'b1;
           // Check OTP return code. Note that non-blank errors are recoverable.
           if ((!(otp_err_i inside {NoError, MacroWriteBlankError}))) begin
             state_d = ErrorSt;
             error_d = otp_err_i;
           end else begin
-            state_d = IdleSt;
-            dai_cmd_done_o = 1'b1;
+            // If we're in a 64bit partition, or if we've calculated a digest, we
+            // have to write 64bit of data. Note that the block counter is only nonzero
+            // at this point if a digest has been calculated right before jumping into WriteSt.
+            if (PartInfo[part_idx].scrambled || block_cnt_q != 0) begin
+              if (hw_cnt_q == ScrmblBlockHalfWords-1) begin
+                state_d = IdleSt;
+                dai_cmd_done_o = 1'b1;
+              // Go back and write remaining halfwords
+              end else begin
+                state_d = WriteSt;
+              end
+            end else begin
+              if (hw_cnt_q == 1) begin
+                state_d = IdleSt;
+                dai_cmd_done_o = 1'b1;
+              // Go back and write second halfword.
+              end else begin
+                state_d = WriteSt;
+              end
+            end
             // Signal non-blank state, but do not go to terminal error state.
             if (otp_err_i == MacroWriteBlankError) begin
               error_d = otp_err_i;
@@ -445,14 +482,21 @@ module otp_ctrl_dai
       DigReadWaitSt: begin
         scrmbl_mtx_req_o = 1'b1;
         if (otp_rvalid_i) begin
-          cnt_en = 1'b1;
+          hw_cnt_en    = 1'b1;
           // Check OTP return code.
           if ((!(otp_err_i inside {NoError, MacroEccCorrError}))) begin
             state_d = ErrorSt;
             error_d = otp_err_i;
           end else begin
             data_en = 1'b1;
-            state_d = DigSt;
+            // Compute digest if we've fetched 64bit.
+            if (hw_cnt_q == ScrmblBlockHalfWords-1) begin
+              hw_cnt_clr = 1'b1;
+              state_d = DigSt;
+            // Else fetch more halfwords.
+            end else begin
+              state_d = DigReadSt;
+            end
             // Signal soft ECC errors, but do not go into terminal error state.
             if (otp_err_i == MacroEccCorrError) begin
               error_d = otp_err_i;
@@ -467,26 +511,26 @@ module otp_ctrl_dai
       DigSt: begin
         scrmbl_mtx_req_o = 1'b1;
         scrmbl_valid_o = 1'b1;
-        // No need to digest the digest value itself
-        if (otp_addr_o == digest_addr_lut[part_idx]) begin
-          // Trigger digest round in case this is the second block in a row.
-          if (cnt_q[0]) begin
-            scrmbl_cmd_o = Digest;
-            if (scrmbl_ready_i) begin
+        if (scrmbl_ready_i) begin
+          // No need to digest the digest value itself
+          if (otp_addr_o == digest_addr_lut[part_idx]) begin
+            // Trigger digest round in case this is the second block in a row.
+            if (block_cnt_q[0]) begin
+              scrmbl_cmd_o = Digest;
               state_d = DigFinSt;
+            // Otherwise, just load low word and go to padding state.
+            end else begin
+              state_d = DigPadSt;
             end
-          // Otherwise, just load low word and go to padding state.
-          end else if (scrmbl_ready_i) begin
-            state_d = DigPadSt;
-          end
-        end else begin
-          // Trigger digest round in case this is the second block in a row.
-          if (cnt_q[0]) begin
-            scrmbl_cmd_o = Digest;
-          end
-          // Go back and fetch more data blocks.
-          if (scrmbl_ready_i) begin
-            state_d = DigReadSt;
+          end else begin
+            block_cnt_en = 1'b1;
+            // Trigger digest round in case this is the second block in a row.
+            if (block_cnt_q[0]) begin
+              scrmbl_cmd_o = Digest;
+            // Go back and fetch more data blocks.
+            end else begin
+              state_d = DigReadSt;
+            end
           end
         end
       end
@@ -599,21 +643,18 @@ module otp_ctrl_dai
                      (PartInfo[part_idx].scrambled) ? {dai_addr_i[OtpByteAddrWidth-1:3], 3'h0} :
                                                       {dai_addr_i[OtpByteAddrWidth-1:2], 2'h0};
 
-  // OTP transaction sizes are 64bit for scrambled partitions, and when digesting.
-  // Otherwise, they are 32bit.
-  assign otp_size_o = (PartInfo[part_idx].scrambled || base_sel_q == PartOffset) ?
-                      OtpSizeWidth'(unsigned'(ScrmblBlockWidth / OtpWidth - 1)) :
-                      OtpSizeWidth'(unsigned'(32 / OtpWidth - 1));
+  // The 64bit block counter is only used for computing a digest.
+  assign block_cnt_d = (block_cnt_clr) ? '0                 :
+                       (block_cnt_en)  ? block_cnt_q + 1'b1 : block_cnt_q;
 
-  // Address counter - this is only used for computing a digest, hence the increment is
-  // fixed to 8 byte.
-  assign cnt_d = (cnt_clr) ? '0           :
-                 (cnt_en)  ? cnt_q + 1'b1 : cnt_q;
+  // The halfword counter is used to track the number of OTP halfwords that have been transferred.
+  assign hw_cnt_d = (hw_cnt_clr) ? '0                :
+                    (hw_cnt_en)  ? hw_cnt_q + + 1'b1 : hw_cnt_q;
 
   // Note that OTP works on halfword (16bit) addresses, hence need to
   // shift the addresses appropriately.
   logic [OtpByteAddrWidth-1:0] addr_calc;
-  assign addr_calc = {cnt_q, {$clog2(ScrmblBlockWidth/8){1'b0}}} + addr_base;
+  assign addr_calc = {block_cnt_q, hw_cnt_q, 1'b0} + addr_base;
   assign otp_addr_o = addr_calc >> OtpAddrShift;
 
   ///////////////
@@ -634,14 +675,16 @@ module otp_ctrl_dai
 
   always_ff @(posedge clk_i or negedge rst_ni) begin : p_regs
     if (!rst_ni) begin
-      error_q        <= NoError;
-      cnt_q          <= '0;
-      data_q         <= '0;
-      base_sel_q     <= DaiOffset;
+      error_q     <= NoError;
+      block_cnt_q <= '0;
+      hw_cnt_q    <= '0;
+      data_q      <= '0;
+      base_sel_q  <= DaiOffset;
     end else begin
-      error_q        <= error_d;
-      cnt_q          <= cnt_d;
-      base_sel_q     <= base_sel_d;
+      error_q     <= error_d;
+      block_cnt_q <= block_cnt_d;
+      hw_cnt_q    <= hw_cnt_d;
+      base_sel_q  <= base_sel_d;
 
       // Working register
       if (data_clr) begin
@@ -652,7 +695,7 @@ module otp_ctrl_dai
         end else if (data_sel == DaiData) begin
           data_q <= dai_wdata_i;
         end else begin
-          data_q <= otp_rdata_i;
+          data_q[hw_cnt_q] <= otp_rdata_i;
         end
       end
     end
@@ -670,7 +713,6 @@ module otp_ctrl_dai
   `ASSERT_KNOWN(DaiRdataKnown_A,     dai_rdata_o)
   `ASSERT_KNOWN(OtpReqKnown_A,       otp_req_o)
   `ASSERT_KNOWN(OtpCmdKnown_A,       otp_cmd_o)
-  `ASSERT_KNOWN(OtpSizeKnown_A,      otp_size_o)
   `ASSERT_KNOWN(OtpWdataKnown_A,     otp_wdata_o)
   `ASSERT_KNOWN(OtpAddrKnown_A,      otp_addr_o)
   `ASSERT_KNOWN(ScrmblMtxReqKnown_A, scrmbl_mtx_req_o)

@@ -111,6 +111,12 @@ module otp_ctrl_part_unbuf
 
   logic [SwWindowAddrWidth-1:0] tlul_addr_d, tlul_addr_q;
 
+  logic hw_cnt_en, hw_cnt_clr;
+  logic [vbits(ScrmblBlockWidth/8)-1:0] hw_cnt_d, hw_cnt_q;
+
+  logic otp_rdata_en;
+  logic [OtpWidth-1:0] otp_rdata_d, otp_rdata_q;
+
   // Output partition error state.
   assign error_o = error_q;
 
@@ -136,8 +142,13 @@ module otp_ctrl_part_unbuf
     tlul_rvalid_o   = 1'b0;
     tlul_rerror_o   = '0;
 
-    // Enable for buffered digest register
+    // Halfword counter
+    hw_cnt_en  = 1'b0;
+    hw_cnt_clr = 1'b0;
+
+    // Enable signals for regs
     digest_reg_en = 1'b0;
+    otp_rdata_en  = 1'b0;
 
     // Error Register
     error_d = error_q;
@@ -149,6 +160,7 @@ module otp_ctrl_part_unbuf
       ResetSt: begin
         if (init_req_i) begin
           state_d = InitSt;
+          hw_cnt_clr = 1'b1;
         end
       end
       ///////////////////////////////////////////////////////////////////
@@ -168,13 +180,19 @@ module otp_ctrl_part_unbuf
       InitWaitSt: begin
         if (otp_rvalid_i) begin
           digest_reg_en = 1'b1;
+          hw_cnt_en     = 1'b1;
           // The only error we tolerate is an ECC soft error. However,
           // we still signal that error via the error state output.
           if (!(otp_err_i inside {NoError, MacroEccCorrError})) begin
             state_d = ErrorSt;
             error_d = otp_err_i;
           end else begin
-            state_d = IdleSt;
+            if (hw_cnt_q == ScrmblBlockHalfWords-1) begin
+              state_d = IdleSt;
+            // Fetch more haldwords.
+            end else begin
+              state_d = InitSt;
+            end
             // Signal ECC soft errors, but do not go into terminal error state.
             if (otp_err_i == MacroEccCorrError) begin
               error_d = otp_err_i;
@@ -188,6 +206,7 @@ module otp_ctrl_part_unbuf
       IdleSt: begin
         init_done_o = 1'b1;
         if (tlul_req_i) begin
+          hw_cnt_clr = 1'b1;
           error_d = NoError; // clear recoverable soft errors.
           state_d = ReadSt;
           tlul_gnt_o = 1'b1;
@@ -223,7 +242,7 @@ module otp_ctrl_part_unbuf
       ReadWaitSt: begin
         init_done_o = 1'b1;
         if (otp_rvalid_i) begin
-          tlul_rvalid_o = 1'b1;
+          hw_cnt_en     = 1'b1;
           // Check OTP return code.
           if (!(otp_err_i inside {NoError, MacroEccCorrError})) begin
             state_d = ErrorSt;
@@ -231,7 +250,15 @@ module otp_ctrl_part_unbuf
             // This causes the TL-UL adapter to return a bus error.
             tlul_rerror_o = 2'b11;
           end else begin
-            state_d = IdleSt;
+            // In this case we can return the data.
+            if (hw_cnt_q == 1) begin
+              state_d = IdleSt;
+              tlul_rvalid_o = 1'b1;
+            // Register the first halfword and go back to ReadSt to fetch second halfword.
+            end else begin
+              state_d = ReadSt;
+              otp_rdata_en = 1'b1;
+            end
             // Latch soft ECC errors, but do not go into terminal error state.
             if (otp_err_i == MacroEccCorrError) begin
               error_d = otp_err_i;
@@ -278,29 +305,34 @@ module otp_ctrl_part_unbuf
   ///////////////////////////////////
 
   assign tlul_addr_d  = tlul_addr_i;
-  assign tlul_rdata_o = (tlul_rvalid_o) ? otp_rdata_i[31:0] : '0;
+  assign otp_rdata_d  = otp_rdata_i;
+  assign tlul_rdata_o = (tlul_rvalid_o) ? {otp_rdata_i, otp_rdata_q} : '0;
+
+  // The halfword counter is used to track the number of OTP halfwords that have been transferred.
+  assign hw_cnt_d = (hw_cnt_clr) ? '0                :
+                    (hw_cnt_en)  ? hw_cnt_q + + 1'b1 : hw_cnt_q;
+
+  logic [OtpByteAddrWidth-1:0] addr_base;
+  assign addr_base = (otp_addr_sel == DigestAddr) ? DigestOffset : {tlul_addr_q, 2'b00};
 
   // Note that OTP works on halfword (16bit) addresses, hence need to
   // shift the addresses appropriately.
-  assign otp_addr_o = (otp_addr_sel == DigestAddr) ? (DigestOffset >> OtpAddrShift) :
-                                                     {tlul_addr_q, 2'b00} >> OtpAddrShift;
-  // Request 32bit except in case of the digest.
-  assign otp_size_o = (otp_addr_sel == DigestAddr) ?
-                      OtpSizeWidth'(unsigned'(32 / OtpWidth - 1)) :
-                      OtpSizeWidth'(unsigned'(ScrmblBlockWidth / OtpWidth - 1));
+  logic [OtpByteAddrWidth-1:0] addr_calc;
+  assign addr_calc = {hw_cnt_q, 1'b0} + addr_base;
+  assign otp_addr_o = addr_calc >> OtpAddrShift;
 
   ////////////////
   // Digest Reg //
   ////////////////
 
   otp_ctrl_parity_reg #(
-    .Width ( ScrmblBlockWidth ),
-    .Depth ( 1                )
+    .Width ( OtpWidth                  ),
+    .Depth ( ScrmblBlockWidth/OtpWidth )
   ) u_otp_ctrl_parity_reg (
     .clk_i,
     .rst_ni,
     .wren_i        ( digest_reg_en ),
-    .addr_i        ( '0            ),
+    .addr_i        ( hw_cnt_q      ),
     .wdata_i       ( otp_rdata_i   ),
     .data_o        ( digest_o      ),
     .parity_err_o  ( parity_err    )
@@ -356,11 +388,16 @@ module otp_ctrl_part_unbuf
     if (!rst_ni) begin
       error_q       <= NoError;
       tlul_addr_q   <= '0;
+      hw_cnt_q      <= '0;
+      otp_rdata_q   <= '0;
     end else begin
       error_q       <= error_d;
+      hw_cnt_q      <= hw_cnt_d;
       if (tlul_gnt_o) begin
         tlul_addr_q <= tlul_addr_d;
       end
+      if (otp_rdata_en) begin
+        otp_rdata_q <= otp_rdata_d;
     end
   end
 
@@ -376,7 +413,6 @@ module otp_ctrl_part_unbuf
   `ASSERT_KNOWN(TlKnown_A,        tl_o)
   `ASSERT_KNOWN(OtpReqKnown_A,    otp_req_o)
   `ASSERT_KNOWN(OtpCmdKnown_A,    otp_cmd_o)
-  `ASSERT_KNOWN(OtpSizeKnown_A,   otp_size_o)
   `ASSERT_KNOWN(OtpWdataKnown_A,  otp_wdata_o)
   `ASSERT_KNOWN(OtpAddrKnown_A,   otp_addr_o)
 

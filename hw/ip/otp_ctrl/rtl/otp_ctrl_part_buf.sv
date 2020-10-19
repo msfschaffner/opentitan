@@ -41,7 +41,6 @@ module otp_ctrl_part_buf
   // OTP interface
   output logic                        otp_req_o,
   output prim_otp_cmd_e               otp_cmd_o,
-  output logic [OtpSizeWidth-1:0]     otp_size_o,
   output logic [OtpIfWidth-1:0]       otp_wdata_o,
   output logic [OtpAddrWidth-1:0]     otp_addr_o,
   input                               otp_gnt_i,
@@ -69,7 +68,7 @@ module otp_ctrl_part_buf
 
   localparam int DigestOffset = Info.offset + Info.size - ScrmblBlockWidth/8;
   localparam int NumScrmblBlocks = Info.size / (ScrmblBlockWidth/8);
-  localparam int CntWidth = vbits(NumScrmblBlocks);
+  localparam int BlockCntWidth = vbits(NumScrmblBlocks);
 
   // Integration checks for parameters.
   `ASSERT_INIT(OffsetMustBeBlockAligned_A, (Info.offset % (ScrmblBlockWidth/8)) == 0)
@@ -137,8 +136,10 @@ module otp_ctrl_part_buf
   data_sel_e data_sel;
   base_sel_e base_sel;
   access_e dout_gate_d, dout_gate_q;
-  logic [CntWidth-1:0] cnt_d, cnt_q;
-  logic cnt_en, cnt_clr;
+  logic [BlockCntWidth-1:0] block_cnt_d, block_cnt_q;
+  logic [vbits(ScrmblBlockWidth/8)-1:0] hw_cnt_d, hw_cnt_q;
+  logic block_cnt_en, block_cnt_clr;
+  logic hw_cnt_en, hw_cnt_clr;
   logic parity_err;
   logic buffer_reg_en;
   logic [ScrmblBlockWidth-1:0] data_mux;
@@ -169,8 +170,10 @@ module otp_ctrl_part_buf
     scrmbl_valid_o = 1'b0;
 
     // Counter
-    cnt_en   = 1'b0;
-    cnt_clr  = 1'b0;
+    block_cnt_en   = 1'b0;
+    block_cnt_clr  = 1'b0;
+    hw_cnt_en      = 1'b0;
+    hw_cnt_clr     = 1'b0;
     base_sel = PartOffset;
 
     // Buffer register
@@ -220,7 +223,7 @@ module otp_ctrl_part_buf
             // Once we've read and descrambled the whole partition, we can go to integrity
             // verification. Note that the last block is the digest value, which does not
             // have to be descrambled.
-            if (cnt_q == NumScrmblBlocks-1) begin
+            if ((block_cnt_q == NumScrmblBlocks-1) && (hw_cnt_q == ScrmblBlockHalfWords-1)) begin
               state_d = IntegDigClrSt;
             // Only need to descramble if this is a scrambled partition.
             // Otherwise, we can just go back to InitSt and read the next block.
@@ -228,7 +231,12 @@ module otp_ctrl_part_buf
               state_d = InitDescrSt;
             end else begin
               state_d = InitSt;
-              cnt_en = 1'b1;
+              if (hw_cnt_q == ScrmblBlockHalfWords-1) begin
+                block_cnt_en = 1'b1;
+                hw_cnt_clr = 1'b1;
+              end else begin
+                hw_cnt_en = 1'b1;
+              end
             end
             // Signal ECC soft errors, but do not go into terminal error state.
             if (otp_err_i == MacroEccCorrError) begin
@@ -261,7 +269,7 @@ module otp_ctrl_part_buf
         if (scrmbl_valid_i) begin
           state_d = InitSt;
           buffer_reg_en = 1'b1;
-          cnt_en = 1'b1;
+          block_cnt_en = 1'b1;
         end
       end
       ///////////////////////////////////////////////////////////////////
@@ -279,7 +287,8 @@ module otp_ctrl_part_buf
           end
         end else if (cnsty_chk_req_i) begin
           state_d = CnstyReadSt;
-          cnt_clr = 1'b1;
+          block_cnt_clr = 1'b1;
+          hw_cnt_clr = 1'b1;
         end
       end
       ///////////////////////////////////////////////////////////////////
@@ -298,6 +307,9 @@ module otp_ctrl_part_buf
           state_d = CnstyReadWaitSt;
         end
       end
+
+      // TODO: fix cnsty and integrity checks. note: we can do the comparisons on halfword chunks
+
       ///////////////////////////////////////////////////////////////////
       // Wait for OTP response and and compare the digest. In case there is
       // a mismatch, lock down the partition and go into the terminal error
@@ -328,13 +340,13 @@ module otp_ctrl_part_buf
               if (scrmbl_data_o == data_mux) begin
                 // Can go back to idle and acknowledge the
                 // request if this is the last block.
-                if (cnt_q == NumScrmblBlocks-1) begin
+                if (block_cnt_q == NumScrmblBlocks-1) begin
                   state_d = IdleSt;
                   cnsty_chk_ack_o = 1'b1;
                 // Need to go back and read out more blocks.
                 end else begin
                   state_d = CnstyReadSt;
-                  cnt_en = 1'b1;
+                  block_cnt_en = 1'b1;
                 end
               end else begin
                 state_d = ErrorSt;
@@ -351,7 +363,8 @@ module otp_ctrl_part_buf
         if (Info.hw_digest) begin
           scrmbl_mtx_req_o = 1'b1;
           scrmbl_valid_o = 1'b1;
-          cnt_clr = 1'b1;
+          block_cnt_clr = 1'b1;
+          hw_cnt_clr = 1'b1;
           // Need to reset the digest state and set it to chained
           // mode if this partition is scrambled.
           scrmbl_cmd_o = DigestInit;
@@ -410,13 +423,13 @@ module otp_ctrl_part_buf
         scrmbl_mtx_req_o = 1'b1;
         scrmbl_valid_o = 1'b1;
         if (scrmbl_ready_i) begin
-          cnt_en = 1'b1;
+          block_cnt_en = 1'b1;
           // No need to digest the digest value itself
-          if (cnt_q == NumScrmblBlocks-2) begin
+          if (block_cnt_q == NumScrmblBlocks-2) begin
             // Note that the digest operates on 128bit blocks since the data is fed in via the
             // PRESENT key input. Therefore, we only trigger a digest update on every second
             // 64bit block that is pushed into the scrambling datapath.
-            if (cnt_q[0]) begin
+            if (block_cnt_q[0]) begin
               scrmbl_cmd_o = Digest;
               state_d = IntegDigFinSt;
             end else begin
@@ -424,7 +437,7 @@ module otp_ctrl_part_buf
             end
           end else begin
             // Trigger digest round in case this is the second block in a row.
-            if (cnt_q[0]) begin
+            if (block_cnt_q[0]) begin
               scrmbl_cmd_o = Digest;
             end
             // Go back and scramble the next data block if this is
@@ -525,24 +538,24 @@ module otp_ctrl_part_buf
   // Address Calc and Muxes //
   ////////////////////////////
 
-  // Address counter - this is only used for computing a digest, hence the increment is
-  // fixed to 8 byte.
-  assign cnt_d = (cnt_clr) ? '0           :
-                 (cnt_en)  ? cnt_q + 1'b1 : cnt_q;
-
   logic [OtpByteAddrWidth-1:0] addr_base;
   assign addr_base = (base_sel == DigOffset) ? DigestOffset : Info.offset;
+
+  // The 64bit block counter is only used for computing a digest.
+  assign block_cnt_d = (block_cnt_clr) ? '0                 :
+                       (block_cnt_en)  ? block_cnt_q + 1'b1 : block_cnt_q;
+
+  // The halfword counter is used to track the number of OTP halfwords that have been transferred.
+  assign hw_cnt_d = (hw_cnt_clr) ? '0                :
+                    (hw_cnt_en)  ? hw_cnt_q + + 1'b1 : hw_cnt_q;
 
   // Note that OTP works on halfword (16bit) addresses, hence need to
   // shift the addresses appropriately.
   logic [OtpByteAddrWidth-1:0] addr_calc;
-  assign addr_calc = OtpByteAddrWidth'({cnt_q, {$clog2(ScrmblBlockWidth/8){1'b0}}}) + addr_base;
+  assign addr_calc = {block_cnt_q, hw_cnt_q, 1'b0} + addr_base;
   assign otp_addr_o = addr_calc >> OtpAddrShift;
 
-  // Always transfer 64bit blocks.
-  assign otp_size_o = OtpSizeWidth'(unsigned'(ScrmblBlockWidth / OtpWidth) - 1);
-
-  assign scrmbl_data_o = data_o[cnt_q << $clog2(ScrmblBlockWidth) +: ScrmblBlockWidth];
+  assign scrmbl_data_o = data_o[block_cnt_q << $clog2(ScrmblBlockWidth) +: ScrmblBlockWidth];
 
   assign data_mux = (data_sel == ScrmblData) ? scrmbl_data_i : otp_rdata_i;
 
@@ -553,16 +566,16 @@ module otp_ctrl_part_buf
   // TODO: need to add secure erase feature here.
   logic [Info.size*8-1:0] data;
   otp_ctrl_parity_reg #(
-    .Width ( ScrmblBlockWidth ),
-    .Depth ( NumScrmblBlocks  )
+    .Width ( OtpWidth ),
+    .Depth ( NumScrmblBlocks * ScrmblBlockHalfWords )
   ) u_otp_ctrl_parity_reg (
     .clk_i,
     .rst_ni,
-    .wren_i       ( buffer_reg_en ),
-    .addr_i       ( cnt_q         ),
-    .wdata_i      ( data_mux      ),
-    .data_o       ( data          ),
-    .parity_err_o ( parity_err    )
+    .wren_i       ( buffer_reg_en           ),
+    .addr_i       ( {block_cnt_q, hw_cnt_q} ),
+    .wdata_i      ( data_mux                ),
+    .data_o       ( data                    ),
+    .parity_err_o ( parity_err              )
   );
 
   // Hardware output gating.
@@ -622,11 +635,11 @@ module otp_ctrl_part_buf
   always_ff @(posedge clk_i or negedge rst_ni) begin : p_regs
     if (!rst_ni) begin
       error_q     <= NoError;
-      cnt_q       <= '0;
+      block_cnt_q       <= '0;
       dout_gate_q <= Locked;
     end else begin
       error_q     <= error_d;
-      cnt_q       <= cnt_d;
+      block_cnt_q       <= block_cnt_d;
       dout_gate_q <= dout_gate_d;
     end
   end
@@ -645,7 +658,6 @@ module otp_ctrl_part_buf
   `ASSERT_KNOWN(DataKnown_A,         data_o)
   `ASSERT_KNOWN(OtpReqKnown_A,       otp_req_o)
   `ASSERT_KNOWN(OtpCmdKnown_A,       otp_cmd_o)
-  `ASSERT_KNOWN(OtpSizeKnown_A,      otp_size_o)
   `ASSERT_KNOWN(OtpWdataKnown_A,     otp_wdata_o)
   `ASSERT_KNOWN(OtpAddrKnown_A,      otp_addr_o)
   `ASSERT_KNOWN(ScrmblMtxReqKnown_A, scrmbl_mtx_req_o)
