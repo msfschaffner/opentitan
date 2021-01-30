@@ -62,9 +62,10 @@ def get_results(resdir):
          r"^ERROR: Failed to run .*: Lint failed.*"),
         ("errors",
          r"^(?!ERROR: Failed to run .* Lint failed)ERROR: .*"),
-        ("errors", r"^Error: .*"),
+        ("errors", r"^.*Error: .*"),
         ("errors", r"^E .*"),
         ("errors", r"^F .*"),
+        ("errors", r".*: syntax error, rejected.*"),
         # TODO(https://github.com/olofk/edalize/issues/90):
         # this is a workaround until we actually have native Edalize
         # support for JasperGold and "formal" targets
@@ -74,7 +75,7 @@ def get_results(resdir):
          # remove once this has been fixed in Edalize or in the corefile.
          r"^(?!WARNING: Unknown item symbiyosis in section Target)WARNING: .*"
          ),
-        ("warnings", r"^Warning: .* "),
+        ("warnings", r"^.*Warning: .* "),
         ("warnings", r"^W .*"),
         ("lint_warnings", r"^.*\[Style:.*")
     ]
