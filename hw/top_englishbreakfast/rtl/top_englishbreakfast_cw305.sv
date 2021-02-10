@@ -82,11 +82,11 @@ module top_englishbreakfast_cw305 #(
   ) padring (
     // Clk / Rst
     .clk_pad_i           ( 1'b0 ),
-    .clk_usb_48mhz_pad_i ( 1'b0 ),
     .rst_pad_ni          ( 1'b0 ),
     .clk_o               (      ),
-    .clk_usb_48mhz_o     (      ),
     .rst_no              (      ),
+    .cc1_i               ( 1'b0 ),
+    .cc2_i               ( 1'b0 ),
     // MIO Pads
     .mio_pad_io          ( { 12'bz,   // Note that 31:20 are currently not mapped
                              IO_DPS5, // Use GPIO19 to pass JTAG_SRST
@@ -187,7 +187,11 @@ module top_englishbreakfast_cw305 #(
     // To padring side
     .out_padring_o ( {dio_out_padring, mio_out_padring} ),
     .oe_padring_o  ( {dio_oe_padring, mio_oe_padring } ),
-    .in_padring_i  ( {dio_in_padring, mio_in_padring } )
+    .in_padring_i  ( {dio_in_padring, mio_in_padring } ),
+    // USB breakouts
+    .usb_pullup_p_en_o (      ),
+    .usb_pullup_n_en_o (      ),
+    .usb_diff_input_i  ( 1'b0 )
   );
 
   ////////////////////////////////
