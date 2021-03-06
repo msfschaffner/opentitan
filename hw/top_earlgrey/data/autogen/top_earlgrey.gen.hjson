@@ -471,6 +471,25 @@
         }
       ]
     }
+    {
+      name: rv_dm
+      type: rv_dm
+      inter_signal_list:
+      [
+        {
+          struct: jtag
+          type: req_rsp
+          name: jtag
+          act: rsp
+          package: jtag_pkg
+          inst_name: rv_dm
+          width: 1
+          default: ""
+          top_signame: pinmux_aon_rv_jtag
+          index: -1
+        }
+      ]
+    }
   ]
   module:
   [
@@ -4456,7 +4475,20 @@
       available_input_list: []
       available_output_list: []
       available_inout_list: []
-      param_list: []
+      param_list:
+      [
+        {
+          name: TargetCfg
+          desc: Target specific pinmux configuration.
+          type: pinmux_pkg::target_cfg_t
+          default: pinmux_pkg::DefaultTargetCfg
+          local: "false"
+          expose: "true"
+          randcount: "0"
+          randtype: none
+          name_top: PinmuxAonTargetCfg
+        }
+      ]
       interrupt_list: []
       alert_list: []
       wakeup_list:
@@ -4519,6 +4551,10 @@
           act: req
           package: jtag_pkg
           inst_name: pinmux_aon
+          width: 1
+          default: ""
+          end_idx: -1
+          top_signame: pinmux_aon_rv_jtag
           index: -1
         }
         {
@@ -7992,6 +8028,10 @@
       pinmux_aon.lc_jtag:
       [
         lc_ctrl.jtag
+      ]
+      pinmux_aon.rv_jtag:
+      [
+        rv_dm.jtag
       ]
       otp_ctrl.otp_lc_data:
       [
@@ -14097,6 +14137,10 @@
         act: req
         package: jtag_pkg
         inst_name: pinmux_aon
+        width: 1
+        default: ""
+        end_idx: -1
+        top_signame: pinmux_aon_rv_jtag
         index: -1
       }
       {
@@ -16077,6 +16121,18 @@
         index: -1
       }
       {
+        struct: jtag
+        type: req_rsp
+        name: jtag
+        act: rsp
+        package: jtag_pkg
+        inst_name: rv_dm
+        width: 1
+        default: ""
+        top_signame: pinmux_aon_rv_jtag
+        index: -1
+      }
+      {
         struct: edn
         type: req_rsp
         name: edn
@@ -17001,6 +17057,28 @@
         package: jtag_pkg
         struct: jtag_rsp
         signame: pinmux_aon_lc_jtag_rsp
+        width: 1
+        type: req_rsp
+        end_idx: -1
+        act: req
+        suffix: rsp
+        default: ""
+      }
+      {
+        package: jtag_pkg
+        struct: jtag_req
+        signame: pinmux_aon_rv_jtag_req
+        width: 1
+        type: req_rsp
+        end_idx: -1
+        act: req
+        suffix: req
+        default: ""
+      }
+      {
+        package: jtag_pkg
+        struct: jtag_rsp
+        signame: pinmux_aon_rv_jtag_rsp
         width: 1
         type: req_rsp
         end_idx: -1
