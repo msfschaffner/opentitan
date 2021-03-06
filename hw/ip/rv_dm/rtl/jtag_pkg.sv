@@ -12,13 +12,21 @@ package jtag_pkg;
     logic tdi;
   } jtag_req_t;
 
-  parameter jtag_req_t JTAG_REQ_DEFAULT = '0;
+  parameter jtag_req_t JTAG_REQ_DEFAULT = '{
+    tck: 1'b0,
+    tms: 1'b0,
+    trst_n: 1'b1,
+    tdi: 1'b0
+  };
 
   typedef struct packed {
     logic tdo;
     logic tdo_oe;
   } jtag_rsp_t;
 
-  parameter jtag_rsp_t JTAG_RSP_DEFAULT = '0;
+  parameter jtag_rsp_t JTAG_RSP_DEFAULT = '{
+    tdo: 1'b0,
+    tdo_oe: 1'b0
+  };
 
 endpackage : jtag_pkg
