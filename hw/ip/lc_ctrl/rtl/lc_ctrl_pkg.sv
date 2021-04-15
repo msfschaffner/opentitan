@@ -38,7 +38,7 @@ package lc_ctrl_pkg;
     Off = 4'b0101
   } lc_tx_e;
 
-  parameter lc_tx_t LC_TX_DEFAULT = Off;
+  parameter lc_tx_t LC_TX_DEFAULT = lc_tx_t'(Off);
 
   parameter int RmaSeedWidth = 32;
   typedef logic [RmaSeedWidth-1:0] lc_flash_rma_seed_t;
