@@ -19,6 +19,13 @@
   bus_interfaces: [
     { protocol: "tlul", direction: "device" }
   ],
+  alert_list: [
+    { name: "fatal_fault",
+      desc: '''
+      This fatal alert is triggered when a fatal TL-UL bus integrity fault is detected inside the RSTMGR unit.
+      '''
+    }
+  ],
   regwidth: "32",
   scan: "true",
   scan_reset: "true",
