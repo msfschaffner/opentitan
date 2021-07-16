@@ -18,21 +18,82 @@ package lc_ctrl_dv_utils_pkg;
     DecLcStProdEnd: {DecLcStScrap},
     DecLcStProd:    {DecLcStScrap, DecLcStRma},
     DecLcStDev:     {DecLcStScrap, DecLcStRma},
-    DecLcStTestUnlocked3: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev},
-    DecLcStTestUnlocked2: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
-                           DecLcStTestLocked2},
+    DecLcStTestUnlocked7: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev},
+    DecLcStTestUnlocked6: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                           DecLcStTestLocked6},
+    DecLcStTestUnlocked5: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                           DecLcStTestLocked6, DecLcStTestLocked5},
+    DecLcStTestUnlocked4: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                           DecLcStTestLocked6, DecLcStTestLocked5, DecLcStTestLocked4},
+    DecLcStTestUnlocked3: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                           DecLcStTestLocked6, DecLcStTestLocked5, DecLcStTestLocked4,
+                           DecLcStTestLocked3},
+    DecLcStTestUnlocked2: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                           DecLcStTestLocked6, DecLcStTestLocked5, DecLcStTestLocked4,
+                           DecLcStTestLocked3, DecLcStTestLocked2},
     DecLcStTestUnlocked1: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev,
-                           DecLcStTestLocked2, DecLcStTestLocked1},
+                           DecLcStTestLocked6, DecLcStTestLocked5, DecLcStTestLocked4,
+                           DecLcStTestLocked3, DecLcStTestLocked2, DecLcStTestLocked1},
     DecLcStTestUnlocked0: {DecLcStScrap, DecLcStRma, DecLcStProdEnd, DecLcStProd, DecLcStDev,
-                           DecLcStTestLocked2, DecLcStTestLocked1, DecLcStTestLocked0},
-    DecLcStTestLocked2: {DecLcStScrap, DecLcStProdEnd, DecLcStProd,
-                         DecLcStDev, DecLcStTestUnlocked3},
+                           DecLcStTestLocked6, DecLcStTestLocked5, DecLcStTestLocked4,
+                           DecLcStTestLocked3, DecLcStTestLocked2, DecLcStTestLocked1,
+                           DecLcStTestLocked0},
+    DecLcStTestLocked6: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                         DecLcStTestUnlocked7},
+    DecLcStTestLocked5: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                         DecLcStTestUnlocked7, DecLcStTestUnlocked6},
+    DecLcStTestLocked4: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                         DecLcStTestUnlocked7, DecLcStTestUnlocked6, DecLcStTestUnlocked5},
+    DecLcStTestLocked3: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                         DecLcStTestUnlocked7, DecLcStTestUnlocked6, DecLcStTestUnlocked5,
+                         DecLcStTestUnlocked4},
+    DecLcStTestLocked2: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
+                         DecLcStTestUnlocked7, DecLcStTestUnlocked6, DecLcStTestUnlocked5,
+                         DecLcStTestUnlocked4, DecLcStTestUnlocked3},
     DecLcStTestLocked1: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
-                         DecLcStTestUnlocked3, DecLcStTestUnlocked2},
+                         DecLcStTestUnlocked7, DecLcStTestUnlocked6, DecLcStTestUnlocked5,
+                         DecLcStTestUnlocked4, DecLcStTestUnlocked3, DecLcStTestUnlocked2},
     DecLcStTestLocked0: {DecLcStScrap, DecLcStProdEnd, DecLcStProd, DecLcStDev,
-                         DecLcStTestUnlocked3, DecLcStTestUnlocked2, DecLcStTestUnlocked1},
-    DecLcStRaw: {DecLcStScrap, DecLcStTestUnlocked2, DecLcStTestUnlocked1, DecLcStTestUnlocked0}
+                         DecLcStTestUnlocked7, DecLcStTestUnlocked6, DecLcStTestUnlocked5,
+                         DecLcStTestUnlocked4, DecLcStTestUnlocked3, DecLcStTestUnlocked2,
+                         DecLcStTestUnlocked1},
+    DecLcStRaw: {DecLcStScrap, DecLcStTestUnlocked7, DecLcStTestUnlocked6, DecLcStTestUnlocked5,
+                 DecLcStTestUnlocked4, DecLcStTestUnlocked3, DecLcStTestUnlocked2,
+                 DecLcStTestUnlocked1, DecLcStTestUnlocked0}
   };
+
+
+  // Checks whether the current state is a test unlocked state within the given index range.
+  function automatic bit is_test_unlocked_state(dec_lc_state_e curr_state, int first, int last);
+  begin
+    int index;
+    // Test unlocked states have even index.
+    if (curr_state < DecLcStTestUnlocked0 ||
+        curr_state > DecLcStTestUnlocked7 ||
+        (index % 2 == 1)) begin
+      return 0;
+    end else begin
+      index = curr_state - DecLcStTestUnlocked0;
+      return (index/2 >= first && index/2 <= last);
+    end
+  end
+  endfunction
+
+  // Checks whether the current state is a test locked state within the given index range.
+  function automatic bit is_test_locked_state(dec_lc_state_e curr_state, int first, int last);
+  begin
+    int index;
+    // Test unlocked states have odd index.
+    if (curr_state < DecLcStTestUnlocked0 ||
+        curr_state > DecLcStTestUnlocked7 ||
+        (index % 2 == 0)) begin
+      return 0;
+    end else begin
+      index = curr_state - DecLcStTestUnlocked0;
+      return (index/2 >= first && index/2 <= last);
+    end
+  end
+  endfunction
 
   function automatic dec_lc_state_e dec_lc_state(lc_state_e curr_state);
     case (curr_state)
@@ -44,6 +105,14 @@ package lc_ctrl_dv_utils_pkg;
       LcStTestUnlocked2: return DecLcStTestUnlocked2;
       LcStTestLocked2:   return DecLcStTestLocked2;
       LcStTestUnlocked3: return DecLcStTestUnlocked3;
+      LcStTestLocked3:   return DecLcStTestLocked3;
+      LcStTestUnlocked4: return DecLcStTestUnlocked4;
+      LcStTestLocked4:   return DecLcStTestLocked4;
+      LcStTestUnlocked5: return DecLcStTestUnlocked5;
+      LcStTestLocked5:   return DecLcStTestLocked5;
+      LcStTestUnlocked6: return DecLcStTestUnlocked6;
+      LcStTestLocked6:   return DecLcStTestLocked6;
+      LcStTestUnlocked7: return DecLcStTestUnlocked7;
       LcStDev:           return DecLcStDev;
       LcStProd:          return DecLcStProd;
       LcStProdEnd:       return DecLcStProdEnd;
@@ -63,6 +132,14 @@ package lc_ctrl_dv_utils_pkg;
       DecLcStTestUnlocked2: return LcStTestUnlocked2;
       DecLcStTestLocked2:   return LcStTestLocked2;
       DecLcStTestUnlocked3: return LcStTestUnlocked3;
+      DecLcStTestLocked3:   return LcStTestLocked3;
+      DecLcStTestUnlocked4: return LcStTestUnlocked4;
+      DecLcStTestLocked4:   return LcStTestLocked4;
+      DecLcStTestUnlocked5: return LcStTestUnlocked5;
+      DecLcStTestLocked5:   return LcStTestLocked5;
+      DecLcStTestUnlocked6: return LcStTestUnlocked6;
+      DecLcStTestLocked6:   return LcStTestLocked6;
+      DecLcStTestUnlocked7: return LcStTestUnlocked7;
       DecLcStDev:           return LcStDev;
       DecLcStProd:          return LcStProd;
       DecLcStProdEnd:       return LcStProdEnd;
@@ -91,6 +168,14 @@ package lc_ctrl_dv_utils_pkg;
       LcCnt14 : return 14;
       LcCnt15 : return 15;
       LcCnt16 : return 16;
+      LcCnt17 : return 17;
+      LcCnt18 : return 18;
+      LcCnt19 : return 19;
+      LcCnt20 : return 20;
+      LcCnt21 : return 21;
+      LcCnt22 : return 22;
+      LcCnt23 : return 23;
+      LcCnt24 : return 24;
       default: `uvm_fatal("lc_env_pkg", $sformatf("unknown lc_cnt 0x%0h", curr_cnt))
     endcase
   endfunction
